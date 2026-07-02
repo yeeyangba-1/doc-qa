@@ -102,6 +102,7 @@ class KnowledgeBase:
 
         self.filename = filename
         self.chunks = []
+        self.chunk_docs = []
         self.n_chunks = 0
         self.index = None
         self.structure = []
@@ -119,6 +120,11 @@ class KnowledgeBase:
             self.chunks = splitter.split_text(self.raw_text)
             if not self.chunks:
                 self.chunks = [self.raw_text]
+            # 保存向量下标到 chunk 的映射，后续用于检索溯源和日志分析。
+            self.chunk_docs = [
+                {"chunk_id": i, "content": chunk}
+                for i, chunk in enumerate(self.chunks)
+            ]
             vecs = model.encode(self.chunks).astype(np.float32)
             faiss.normalize_L2(vecs)
             self.index = faiss.IndexFlatIP(EMBEDDING_DIM)
@@ -158,14 +164,34 @@ class KnowledgeBase:
         self.structure = structured
         self.structure_ready = True
 
-    def search(self, query: str, top_k: int = 5) -> list[str]:
+    def search_with_scores(self, query: str, top_k: int = 5) -> list[dict]:
+        """返回带相似度分数的检索结果，用于页面展示和质量日志。"""
         if not self.ready:
             # 索引未就绪，先构建
             self.build_index()
+        if self.index is None or self.n_chunks == 0:
+            return []
+
         q_vec = get_embedding_model().encode([query]).astype(np.float32)
         faiss.normalize_L2(q_vec)
         scores, indices = self.index.search(q_vec, top_k)
-        return [self.chunks[i] for i in indices[0] if i < self.n_chunks]
+        results = []
+        for score, idx in zip(scores[0], indices[0]):
+            if idx < 0 or idx >= self.n_chunks:
+                continue
+            doc = self.chunk_docs[idx] if idx < len(self.chunk_docs) else {
+                "chunk_id": int(idx),
+                "content": self.chunks[idx],
+            }
+            results.append({
+                "chunk_id": int(doc["chunk_id"]),
+                "content": doc["content"],
+                "score": float(score),
+            })
+        return results
+
+    def search(self, query: str, top_k: int = 5) -> list[str]:
+        return [doc["content"] for doc in self.search_with_scores(query, top_k)]
 
     def get_section_text(self, section_index: int) -> str:
         """获取某个章节的原文内容"""
@@ -207,3 +233,33 @@ def chat(kb: KnowledgeBase, system_prompt: str, question: str) -> str:
         kb.build_index()
     context = kb.search(question, top_k=5)
     return ask_llm(system_prompt, question, context)
+
+
+def chat_with_trace(
+    kb: KnowledgeBase,
+    system_prompt: str,
+    question: str,
+    top_k: int = 5,
+    score_threshold: float = 0.25,
+) -> dict:
+    """问答入口：返回答案、检索片段、分数和低置信度标记。"""
+    if not kb.ready:
+        kb.build_index()
+
+    retrieved_docs = kb.search_with_scores(question, top_k=top_k)
+    scores = [doc["score"] for doc in retrieved_docs]
+    max_score = max(scores) if scores else 0.0
+    is_low_confidence = not retrieved_docs or max_score < score_threshold
+
+    if is_low_confidence:
+        answer = "资料中没有足够依据回答这个问题，建议补充相关资料或换一种问法。"
+    else:
+        context = [doc["content"] for doc in retrieved_docs]
+        answer = ask_llm(system_prompt, question, context)
+
+    return {
+        "answer": answer,
+        "retrieved_docs": retrieved_docs,
+        "scores": scores,
+        "is_low_confidence": is_low_confidence,
+    }
