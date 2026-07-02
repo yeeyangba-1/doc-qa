@@ -4,9 +4,10 @@ AI 学习与考试助手
 import streamlit as st
 import time, re, threading
 from rag import build_kb, KnowledgeBase
-from features import smart_qa, generate_outline, generate_exam, analyze_wrong_answer
+from features import smart_qa, smart_qa_with_trace, generate_outline, generate_exam, analyze_wrong_answer
+from rag_logger import append_qa_log, get_log_path
 
-st.set_page_config(page_title="AI 学习与考试助手", page_icon="📚", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="StudyRAG", page_icon="📚", layout="wide", initial_sidebar_state="expanded")
 
 # ============================================
 # CSS
@@ -229,6 +230,9 @@ if "active_ch" not in st.session_state: st.session_state.active_ch = None   # �
 if "active_kp" not in st.session_state: st.session_state.active_kp = None
 if "sel_text" not in st.session_state: st.session_state.sel_text = ""
 if "answer" not in st.session_state: st.session_state.answer = ""
+if "retrieved_docs" not in st.session_state: st.session_state.retrieved_docs = []
+if "scores" not in st.session_state: st.session_state.scores = []
+if "is_low_confidence" not in st.session_state: st.session_state.is_low_confidence = False
 if "show_hero" not in st.session_state: st.session_state.show_hero = True
 
 has_docs = len(st.session_state.doc_list) > 0
@@ -243,7 +247,7 @@ if not has_docs or st.session_state.show_hero:
         <div class="hero-wrap">
             <div class="hero-badge">{SVG['sparkle']} 基于 RAG 检索增强生成</div>
             {SVG['book']}
-            <div class="hero-title">AI 学习助手</div>
+            <div class="hero-title">StudyRAG</div>
             <p class="hero-desc">上传学习资料，AI 帮你智能复习、自动出题、攻克难点</p>
             <div class="upload-box">
                 <p style="text-align:center;font-size:12px;color:#9ca3af;margin-bottom:2px;">
@@ -278,6 +282,9 @@ if not has_docs or st.session_state.show_hero:
             st.session_state.active_ch = None
             st.session_state.active_kp = None
             st.session_state.answer = ""
+            st.session_state.retrieved_docs = []
+            st.session_state.scores = []
+            st.session_state.is_low_confidence = False
             time.sleep(0.3)
             st.rerun()
 
@@ -320,9 +327,25 @@ with st.sidebar:
     st.markdown(f"""
     <div class="sb-brand">
         <div class="sb-logo">AI</div>
-        <span class="sb-name">学习助手</span>
+        <span class="sb-name">StudyRAG</span>
     </div>
     """, unsafe_allow_html=True)
+
+    st.markdown('<div class="nav-label">检索参数</div>', unsafe_allow_html=True)
+    top_k = st.slider("top_k", min_value=1, max_value=10, value=5, step=1)
+    score_threshold = st.slider("score_threshold", min_value=0.0, max_value=1.0, value=0.25, step=0.05)
+
+    log_path = get_log_path()
+    if log_path.exists():
+        st.download_button(
+            "下载 RAG 问答日志 CSV",
+            data=log_path.read_bytes(),
+            file_name="rag_qa_logs.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+    else:
+        st.caption("暂无问答日志")
 
     # 添加资料
     new_file = st.file_uploader("添加资料", type=["pdf","txt"], label_visibility="collapsed", key="sidebar_upload")
@@ -340,6 +363,9 @@ with st.sidebar:
             st.session_state.active_ch = None
             st.session_state.active_kp = None
             st.session_state.answer = ""
+            st.session_state.retrieved_docs = []
+            st.session_state.scores = []
+            st.session_state.is_low_confidence = False
         st.rerun()
 
     # 资料列表
@@ -357,6 +383,9 @@ with st.sidebar:
             st.session_state.active_ch = None
             st.session_state.active_kp = None
             st.session_state.answer = ""
+            st.session_state.retrieved_docs = []
+            st.session_state.scores = []
+            st.session_state.is_low_confidence = False
             st.rerun()
 
     st.markdown('<div class="nav-label">文档结构</div>', unsafe_allow_html=True)
@@ -481,13 +510,32 @@ if ask_btn and question.strip():
     with st.spinner("检索中..."):
         full_q = f"用户引用了以下文本：\n\n{quoted}\n\n用户的问题：{question}" if quoted.strip() else question
         if feature == "💬 智能问答":
-            answer = smart_qa(kb, full_q)
+            trace = smart_qa_with_trace(kb, full_q, top_k=top_k, score_threshold=score_threshold)
+            answer = trace["answer"]
+            st.session_state.retrieved_docs = trace["retrieved_docs"]
+            st.session_state.scores = trace["scores"]
+            st.session_state.is_low_confidence = trace["is_low_confidence"]
+            append_qa_log(
+                query=full_q,
+                answer=answer,
+                retrieved_docs=trace["retrieved_docs"],
+                scores=trace["scores"],
+            )
         elif feature == "📋 复习提纲":
             answer = generate_outline(kb, question.strip() or "全部内容")
+            st.session_state.retrieved_docs = []
+            st.session_state.scores = []
+            st.session_state.is_low_confidence = False
         elif feature == "📝 自动出题":
             answer = generate_exam(kb, 10)
+            st.session_state.retrieved_docs = []
+            st.session_state.scores = []
+            st.session_state.is_low_confidence = False
         elif feature == "🔍 错题解析":
             answer = analyze_wrong_answer(kb, question, "", "")
+            st.session_state.retrieved_docs = []
+            st.session_state.scores = []
+            st.session_state.is_low_confidence = False
         st.session_state.answer = answer
     st.rerun()
 
@@ -495,9 +543,18 @@ if ask_btn and question.strip():
 if st.session_state.answer:
     with st.container():
         st.markdown(st.session_state.answer)
+        if st.session_state.retrieved_docs:
+            st.markdown("### 参考片段 / 检索证据")
+            for doc in st.session_state.retrieved_docs:
+                preview = doc["content"][:300].replace("\n", " ")
+                with st.expander(f"chunk_id={doc['chunk_id']} · score={doc['score']:.3f}"):
+                    st.write(preview)
+        elif st.session_state.is_low_confidence:
+            st.markdown("### 参考片段 / 检索证据")
+            st.caption("无")
 
 st.markdown("""
 <div style="text-align:center; padding:36px 0 12px; color:#d1d5db; font-size:11px;">
-    AI 学习与考试助手 · RAG 检索增强生成
+    StudyRAG · RAG 检索溯源与质量日志
 </div>
 """, unsafe_allow_html=True)
