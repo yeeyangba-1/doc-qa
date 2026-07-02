@@ -1,7 +1,7 @@
 """
 四大功能：智能问答 / 复习提纲 / 自动出题 / 错题解析
 """
-from rag import KnowledgeBase, ask_llm
+from rag import KnowledgeBase, ask_llm, chat_with_trace
 
 # ============================================
 # 1. 智能问答
@@ -20,6 +20,15 @@ QA_PROMPT = """你是一位大学课程助教，专门帮助学生理解和复�
 def smart_qa(kb: KnowledgeBase, question: str) -> str:
     context = kb.search(question, top_k=5)
     return ask_llm(QA_PROMPT, question, context)
+
+
+def smart_qa_with_trace(
+    kb: KnowledgeBase,
+    question: str,
+    top_k: int = 5,
+    score_threshold: float = 0.25,
+) -> dict:
+    return chat_with_trace(kb, QA_PROMPT, question, top_k, score_threshold)
 
 
 # ============================================
