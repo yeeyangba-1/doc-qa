@@ -6,6 +6,7 @@ import time, re, threading
 from rag import build_kb, KnowledgeBase
 from features import smart_qa, smart_qa_with_trace, generate_outline, generate_exam, analyze_wrong_answer
 from rag_logger import append_qa_log, get_log_path
+from ragops_adapter import create_studyrag_runner
 
 st.set_page_config(page_title="StudyRAG", page_icon="📚", layout="wide", initial_sidebar_state="expanded")
 
@@ -233,6 +234,7 @@ if "answer" not in st.session_state: st.session_state.answer = ""
 if "retrieved_docs" not in st.session_state: st.session_state.retrieved_docs = []
 if "scores" not in st.session_state: st.session_state.scores = []
 if "is_low_confidence" not in st.session_state: st.session_state.is_low_confidence = False
+if "last_trace_id" not in st.session_state: st.session_state.last_trace_id = None
 if "show_hero" not in st.session_state: st.session_state.show_hero = True
 
 has_docs = len(st.session_state.doc_list) > 0
@@ -285,6 +287,7 @@ if not has_docs or st.session_state.show_hero:
             st.session_state.retrieved_docs = []
             st.session_state.scores = []
             st.session_state.is_low_confidence = False
+            st.session_state.last_trace_id = None
             time.sleep(0.3)
             st.rerun()
 
@@ -366,6 +369,7 @@ with st.sidebar:
             st.session_state.retrieved_docs = []
             st.session_state.scores = []
             st.session_state.is_low_confidence = False
+            st.session_state.last_trace_id = None
         st.rerun()
 
     # 资料列表
@@ -386,6 +390,7 @@ with st.sidebar:
             st.session_state.retrieved_docs = []
             st.session_state.scores = []
             st.session_state.is_low_confidence = False
+            st.session_state.last_trace_id = None
             st.rerun()
 
     st.markdown('<div class="nav-label">文档结构</div>', unsafe_allow_html=True)
@@ -506,11 +511,23 @@ with btn_col1:
     ask_btn = st.button("发送", type="primary", use_container_width=True)
 
 if ask_btn and question.strip():
+    st.session_state.last_trace_id = None
     st.session_state.sel_text = quoted
     with st.spinner("检索中..."):
         full_q = f"用户引用了以下文本：\n\n{quoted}\n\n用户的问题：{question}" if quoted.strip() else question
         if feature == "💬 智能问答":
-            trace = smart_qa_with_trace(kb, full_q, top_k=top_k, score_threshold=score_threshold)
+            runner = create_studyrag_runner()
+            traced_run = runner.run(
+                full_q,
+                lambda query: smart_qa_with_trace(
+                    kb,
+                    query,
+                    top_k=top_k,
+                    score_threshold=score_threshold,
+                ),
+            )
+            trace = traced_run.result
+            st.session_state.last_trace_id = traced_run.trace_id
             answer = trace["answer"]
             st.session_state.retrieved_docs = trace["retrieved_docs"]
             st.session_state.scores = trace["scores"]
