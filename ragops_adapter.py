@@ -15,7 +15,7 @@ __all__ = ["map_studyrag_result", "create_studyrag_runner"]
 
 
 PROMPT_VERSION = "smart_qa_v1"
-MODEL_NAME = "deepseek-chat"
+MODEL_NAME = "deepseek-v4-flash"
 DEFAULT_TRACE_PATH = Path(__file__).resolve().parent / "outputs" / "ragops_traces.jsonl"
 
 

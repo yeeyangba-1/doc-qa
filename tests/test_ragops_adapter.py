@@ -110,4 +110,4 @@ def test_runner_persists_fake_pipeline_result_without_modifying_it(tmp_path) -> 
     assert trace.retrieval_chunks == ["第三章介绍核心概念。"]
     assert trace.retrieval_scores == [0.92]
     assert trace.prompt_version == "smart_qa_v1"
-    assert trace.model == "deepseek-chat"
+    assert trace.model == "deepseek-v4-flash"
