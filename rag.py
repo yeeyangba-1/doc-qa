@@ -70,7 +70,8 @@ def analyze_structure_with_llm(text: str) -> list[dict]:
     sample = text[:6000]
     try:
         resp = llm.chat.completions.create(
-            model="deepseek-chat",
+            model="deepseek-v4-flash",
+            extra_body={"thinking": {"type": "disabled"}},
             messages=[
                 {"role": "system", "content": STRUCTURE_PROMPT},
                 {"role": "user", "content": f"请分析以下文档的结构：\n\n{sample}\n\n（如果文档后面还有内容，请根据前文推断整体结构）"},
@@ -217,7 +218,8 @@ def ask_llm(system_prompt: str, user_question: str, context: list[str] | None = 
         messages.append({"role": "system", "content": f"参考资料：\n\n{ctx}"})
     messages.append({"role": "user", "content": user_question})
     resp = llm.chat.completions.create(
-        model="deepseek-chat", messages=messages,
+        model="deepseek-v4-flash", messages=messages,
+        extra_body={"thinking": {"type": "disabled"}},
         temperature=0.3, max_tokens=2000,
     )
     return resp.choices[0].message.content
