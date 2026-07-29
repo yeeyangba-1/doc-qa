@@ -9,4 +9,4 @@ sentence-transformers>=4.0
 openai>=1.50
 python-dotenv>=1.0
 torch>=2.6.0
-ragops @ git+https://github.com/yeeyangba-1/RAGOps.git@fbefc21dad5b604c2000f51d101dfb8c26626dc3
+ragops @ git+https://github.com/yeeyangba-1/RAGOps.git@386f42c95f1f5ea08a1df8de1cf5fa1fcef2eb92
