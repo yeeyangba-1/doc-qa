@@ -21,7 +21,7 @@ EXPECTED_DIRECT_DEPENDENCIES = {
     "torch",
     "ragops",
 }
-RAGOPS_COMMIT = "fbefc21dad5b604c2000f51d101dfb8c26626dc3"
+RAGOPS_COMMIT = "386f42c95f1f5ea08a1df8de1cf5fa1fcef2eb92"
 
 
 def _requirement_lines() -> list[str]:
